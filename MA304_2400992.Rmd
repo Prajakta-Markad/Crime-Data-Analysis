@@ -1,0 +1,425 @@
+---
+title: "MA304_2400992"
+output: html_document
+date: "2025-04-22"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+# Main Processing:
+As technology progresses in this age, using data to address every type of issues has started to become important. In this report we attempt to use a data-driven approach to enhance safety in the city of Colchester using two datasets. By analysing the patterns and correlation between various crimes and the whether condition, we may be able to identify patterns to devise measures to increase safety and reduce crimes by analysing the data to help police prioritise the important cases with focused effort, rather than accidentally putting more focus on cases with less significant importance.
+
+```{r, echo=TRUE, results='markup', fig.show='hold'}
+
+#Libraries
+library(stringr)
+library(knitr)
+library(lubridate)
+library(DT)
+library(plotly)
+library(dplyr)
+library(ggplot2)
+library(viridis)
+library(ggcorrplot)
+library(MASS)
+library(leaflet)
+library(leaflet.extras)
+#set working directory
+getwd()
+setwd("/Users/praj/Documents/Lectures/Data Viz")
+
+#reading the data
+rm(list=ls())
+initial_crime <- read.csv("crime24.csv")
+initial_temp <- read.csv("temp24.csv")
+```
+
+```{r, echo=TRUE, results='markup', fig.show='hold'}
+#View the structure and dimension of data:
+dim(initial_crime)
+dim(initial_temp)
+str(initial_crime)
+str(initial_temp)
+
+# Check for missing values
+sum(is.na(initial_crime))
+print(sum(is.na(initial_crime)))
+sum(is.na(initial_temp))
+print(sum(is.na(initial_temp)))
+```
+
+## Data Preparation and cleaning:
+
+Data preparation is an important step in the analytical process, to ensure integrity and reliability of data sources.
+The raw/initial crime dataset underwent a cleaning process to address missing values, standardise formats, and remove irrelevant/non-important information. Numeric columns were checked as well, ensuring that missing values were replaced with appropriate values(like mean values). Textual data(like Street Names) is converted to a consistent format for accurate analysis and visualization. We have removed the context and location sub-type columns as they are either empty or have NA values.
+
+Similarly, the temp(we can also consider it the weather data) dataset also underwent cleaning process to ensure its consistency and completeness. Inconsistent variables were spotted and removed/replaced, making the dataset proper for analysis.
+
+```{r, echo=TRUE, results='markup', fig.show='hold'}
+#Setting new variable for cleaned dataset
+cleaned_crime <- initial_crime
+
+#Listing numeric columns
+num_col_crime <- sapply(cleaned_crime, is.numeric)
+
+#Replacing NA values with mean
+cleaned_crime[num_col_crime] <- lapply(cleaned_crime[num_col_crime], function(x) {
+    ifelse(is.na(x), round(mean(x, na.rm = TRUE), 1), x)
+})
+
+#Data cleaning in cleaned set:
+#Filling missing values in outcome_status
+cleaned_crime$outcome_status[is.na(cleaned_crime$outcome_status)] <- "No Information available"
+cleaned_crime$street_name <- str_trim(str_to_lower(cleaned_crime$street_name))
+
+cleaned_crime$date <- ym(cleaned_crime$date)
+
+#Remove irrelevant data columns
+cleaned_crime <- subset(cleaned_crime, select = -c(context, location_subtype))
+
+##Repeating process for temp data
+cleaned_temp <- initial_temp
+num_col_temp <- sapply(cleaned_temp, is.numeric)
+cleaned_temp[num_col_temp] <- lapply( cleaned_temp[num_col_temp], 
+                                     function(x) {
+                                       ifelse(is.na(x), round(mean(x, na.rm = TRUE), 1), x)  
+                                      }
+                                   )
+
+cleaned_temp$Date <- ymd(cleaned_temp$Date)
+
+cleaned_temp <- cleaned_temp[, !names(cleaned_temp) %in% c("PreselevHp", "SnowDepcm")]
+
+dim(cleaned_crime)
+head(cleaned_crime)
+dim(cleaned_temp)
+head(cleaned_temp)
+
+```
+## Validating data after cleaning:
+
+The structure and summary of the data was seen and we confirmed that there are no more NA values in the table since the is.na function returned value 0.
+
+```{r, echo=TRUE, results='markup', fig.show='hold'}
+#View the structure of the data
+str(cleaned_crime)
+str(cleaned_temp)
+
+#View summary of the data
+summary(cleaned_crime)
+summary(cleaned_temp)
+#Check for missing values to reconfirm removal
+sum(is.na(cleaned_crime))
+sum(is.na(cleaned_temp))
+```
+
+## Analysing the crime dataset:
+
+We checked the category of crime and its frequency. Our dataset contained a total of 14 categories of crimes. The crime having the highest frequency of 2420 was violent crimes and the one with the lowest at 65 was Possession of weapons.
+We will also be creating a two-way table for analysing different crimes and their outcomes.
+```{r, echo=TRUE, results='markup', fig.show='hold'}
+
+#Creating new table for frequency:
+crime_freq <- as.data.frame(table(cleaned_crime$category))
+
+#Originally, columns are named as var1 and freq, so we will be renaming them
+colnames(crime_freq) <- c("Category", "Crime Frequency")
+
+#Now we calculate the frequency of the crimes to find out which is the highest committed offence
+max_freq <- crime_freq[which.max(crime_freq$`Crime Frequency`), ]
+max_freq
+
+#Calculating crime percentage
+crime_freq <- crime_freq %>%
+  arrange(desc(`Crime Frequency`)) %>%
+  mutate(Percentage = round((`Crime Frequency` / sum(`Crime Frequency`)) * 100, 2))
+
+datatable(crime_freq, options = list(pageLength = 10))
+
+#Creating a two-way table for crime category and its outcome
+category_outcome <- table(cleaned_crime$category, cleaned_crime$outcome_status)
+kable(category_outcome)
+
+```
+
+## Creating plots for various analysis:
+
+Plotting of various datasets is important to figure out the correlation of data or to find patterns. In our case, plotting has shown that violent crimes and anti-social behavior are the most common crimes in Colchester in 2024.
+The pie chart shows that 38.4% of total crimes is just violent crimes, which I believe does warrant more study as to why it is so. More study of external factors, not just the weather, such as Income, employability, access to mental health support can be studied to find out the root cause.
+
+```{r, echo=TRUE, results='markup', fig.show='hold'}
+
+#pie chart for various crimes category and their percentage
+plot_ly(crime_freq, labels = ~Category, values = ~Percentage, type = 'pie',
+        textinfo = 'label+percent',
+        insidetextorientation = 'radial',
+        marker = list(line = list(color = '#FFFFFF', width = 0.5))) %>%
+  layout(title = "Crime Distribution by Category - Percentages")
+```
+
+By hovering over the bar plot, we can see the exact number of crimes of that Category that have been committed. This is for easier understanding of the numbers as, at first glance, we can see the general number of crimes to gauge the severity and then we can hover over the bars for more details.
+
+The second bar plot, we can see that the most common place for crimes to happen are in or near supermarkets, which we can attribute to being crowded places, followed by shopping areas.
+```{r}
+#Interactive bar plot for category to frequency analysis
+plot_ly(crime_freq, x = ~reorder(Category, -`Crime Frequency`), y = ~`Crime Frequency`, type = 'bar',
+        marker = list(color = 'lightblue')) %>% 
+        layout(title = "Interactive Crime Frequency by Category", xaxis = list(title = ""), 
+        yaxis = list(title = "Frequency"))
+
+#Bar plot to check the crime distribution in Colchester
+top_5_crime_places <- cleaned_crime %>%
+  count(street_name, sort = TRUE) %>%
+  slice_max(n, n = 5)
+
+ggplot(top_5_crime_places, aes(x = reorder(street_name, n), y = n)) +
+  geom_col(fill = "darkred") +
+  coord_flip() +
+  labs(title = "Top 5 places where crimes happen in Colchester", x = "Place", y = "Number of Crimes")
+
+```
+
+For the 2D density plot, the darker colors indicate the higher crime rates in that area.We can observe quite the contrast at the centre of the plot.
+
+For the most common crimes, which we will be considering as the top 4 crimes, most of their outcomes were as follows :
+For anti-social behavior - No information available for all the cases.
+For criminal damage arson and shoplifting, we have the most common outcome as Investigation complete, no suspect identified,
+while for violent crimes, it is Unable to prosecute.
+From all these outcomes we can see that for the most commonly committed crimes, there are no severe repercutions/outcomes which would work as a deterrant for offenders commiting similar crimes.
+Bar plots are easy to read and with the shortened forms for the various outcomes, they are easy to understand as well. Setting the colors on our makes makes the readability of the plots better.
+
+```{r, echo=TRUE, results='markup', fig.show='hold'}
+
+#2D Density plot for crimes
+ggplot(cleaned_crime, aes(x = long, y = lat)) +
+  stat_density_2d(aes(fill = ..level..), geom = "polygon", contour = TRUE) +
+  scale_fill_viridis_c() +
+  labs(title = "2D Density Plot: Crimes", x = "Longitude", y = "Latitude") +
+  theme_minimal() +
+  coord_fixed()
+
+#Bar plot to check top crime category and outcomes
+crime_outcome <- cleaned_crime %>%
+  group_by(category, outcome_status) %>%
+  summarise(count = n(), .groups = 'drop')
+
+top_categories <- crime_outcome %>%
+  group_by(category) %>%
+  summarise(total_count = sum(count)) %>%
+  arrange(desc(total_count)) %>%
+  head(4) %>%
+  pull(category)
+
+crime_outcome_top <- crime_outcome %>%
+  filter(category %in% top_categories)
+
+#Shortening the labels because they are too big for x-axis
+crime_outcome_top <- crime_outcome_top %>%
+  mutate(outcome_shortened = case_when(
+    outcome_status == "No Information available" ~ "NI",
+    outcome_status == "Investigation complete; no suspect identified" ~ "IC",
+    outcome_status == "Court result unavailable" ~ "CRU",
+    outcome_status == "Status update unavailable" ~ "SUU",
+    outcome_status == "Unable to prosecute suspect" ~ "UP",
+    outcome_status == "Local resolution" ~ "LR",
+    outcome_status == "Further action is not in the public interest" ~ "NAct",
+    outcome_status == "Action to be taken by another organisation" ~ "AO",
+    outcome_status == "Offender given a caution" ~ "OC",
+    outcome_status == "Awaiting court outcome" ~ "ACO",
+    outcome_status == "Formal action is not in the public interest" ~ "NoA",
+    outcome_status == "Suspect charged as part of another case" ~ "CAC",
+    outcome_status == "Further investigation is not in the public interest" ~ "NFI",
+    outcome_status == "Under investigation" ~ "UI",
+    TRUE ~ outcome_status
+  ))
+
+ggplot(crime_outcome_top, aes(x = reorder(outcome_shortened, -count), y = count, fill = outcome_shortened)) +
+  geom_bar(stat = "identity") +
+  facet_wrap(~category, scales = "free_x") +
+  theme(axis.text.x = element_blank()) +
+  labs(title = "Crime Outcomes according to Top 4 Categories", x = "Outcome", y = "Count") +
+  theme_minimal() +
+  scale_fill_manual(values = c(
+    "NI" = "grey",
+    "IC" = "lightblue",
+    "CRU" = "lightgreen",
+    "SUU" = "lightpink",
+    "UP" = "lightyellow",
+    "LR" = "lightcoral",
+    "NAct" = "lightgray",
+    "AO" = "lightsalmon",
+    "OC" = "lightseagreen",
+    "ACO" = "lightsteelblue",
+    "NoA" = "lightgoldenrodyellow",
+    "CAC" = "violet",
+    "NFI" = "darkorange",
+    "UI" = "salmon"
+  ))
+
+```
+
+The interactive box plot helps to check what the outcome was for a specific crime. Hovering over the plot will show the exact outcomes of the crime after investigation.
+
+```{r}
+
+#Box plot to display outcomes for crimes:
+category_colors <- c(
+  "anti-social-behaviour" = "red", 
+  "bicycle-theft" = "skyblue", 
+  "burglary" = "lightgreen", 
+  "criminal-damage-arson" = "purple", 
+  "drugs" = "orange", 
+  "other-theft" = "yellow", 
+  "possession-of-weapons" = "pink", 
+  "public-order" = "cyan", 
+  "robbery" = "brown", 
+  "shoplifting" = "magenta", 
+  "theft-from-the-person" = "lightblue", 
+  "vehicle-crime" = "darkgreen", 
+  "violent-crime" = "darkred", 
+  "other-crime" = "blue"
+)
+plot_ly(cleaned_crime, y = ~outcome_status, type = "box", color = ~category, colors = category_colors) %>%
+  layout(title = "Box Plot: Outcomes by Crime Category")
+```
+
+## Checking trends by smoothing:
+
+We further analyse the trends of the violent crimes accrding to the months and smoothing plays a key role in trend analysis as it works on the fluctuating data that we have for each month by reducing noise and revealing the underlying trend in the data so that we get a clearer picture for interpretation and future analysis. We can see the general predicted trend and the actual values of that month. The values being below the line mean that the crimes in that month were slightly above the estimated average and the bar crossing through the line indicate that the crimes were below the predicted trend and for some months, like March, October and December, it does follow the predicted trend.
+
+```{r, echo=TRUE, results='markup', fig.show='hold'}
+#Checking the monthly trends of violent crimes(using smoothing)
+violent_crimes <- cleaned_crime %>% filter(category == "violent-crime")
+violent_crimes$month <- floor_date(violent_crimes$date, "month")
+
+violent_crimes_monthly <- violent_crimes %>%
+  group_by(month) %>%
+  summarise(crime_count = n(), .groups = 'drop')
+
+ggplot(violent_crimes_monthly, aes(x = month, y = crime_count)) +
+  geom_bar(stat = "identity", fill = "orange", width = 25) +
+  geom_smooth(method = "auto", se = FALSE, color = "black") +
+  labs(title = "Monthly Trend in Violent Crimes", x = "Month", y = "Crime Count") +
+  theme_minimal()
+```
+
+## Checking crimes with respect to the weather(temp) information provided:
+
+According to the time-series plot, we can see that as the the temperature spiked then dropped, there was an increase in the crimes committed. Whereas, during the time periods where the the temperature is relatively stable or without high fluctuation, we can observe that there are less crimes. From this we can conclude that the drastic change in weather is a factor for increased crimes.
+All of this can be interpreted from our time-series plot, which is a type of plot that shows how something changes over time.
+
+```{r, echo=TRUE, results='markup', fig.show='hold'}
+#Doing a time-series plot for crime count with respect to temperature
+temp_for_crime <- cleaned_crime %>%
+  mutate(date = as.Date(date)) %>%
+  group_by(date) %>%
+  summarise(crime_count = n()) %>%
+  left_join(cleaned_temp, by = c("date" = "Date"))
+
+scaling_factor = 10
+ggplot(temp_for_crime, aes(x = date)) +
+  geom_line(aes(y = crime_count), color = "blue", linewidth = 1) +
+  geom_line(aes(y = TemperatureCAvg * scaling_factor), color = "red", linetype = "dashed", linewidth = 1) +
+  scale_y_continuous(
+    name = "Crime Count",
+    sec.axis = sec_axis(~ . / scaling_factor, name = "Average Temperature (°C)")
+  ) +
+  labs(title = "Time-Series of Crime Count and Temperature", x = "Date") +
+  theme_minimal()
+```
+
+## Correlation analysis:
+
+For our correlation plot, the values will be ranging from +1 to -1 where +1 indicates perfect positive correlation which means that as one value increases(temperature) the other(crimes) also increase and -1 means negative correlation, that is, temperature and crimes are inversely proportional. 0 means there is no correlation.
+From our bar plot, we can see that the number of crimes are higher in Summer, but with violent crimes being higher in count in Winter
+
+```{r, echo=TRUE, results='markup', fig.show='hold'}
+
+#Checking if there is any correlatin between various crimes and the weather
+crime_tempData_correlation <- temp_for_crime %>%
+  dplyr::select(
+    Crimes = crime_count,
+    Avg_temp = TemperatureCAvg,
+    Max_temp = TemperatureCMax,
+    Min_temp = TemperatureCMin,
+    Hour_avg = HrAvg
+    ) %>%
+  cor(use = "complete.obs")
+
+ggcorrplot(crime_tempData_correlation, lab = TRUE)
+
+#Analysing crimes by seasons:
+cleaned_crime$season <- case_when(
+  month(cleaned_crime$date) %in% 3:5 ~ "Spring",
+  month(cleaned_crime$date) %in% 6:8 ~ "Summer",
+  month(cleaned_crime$date) %in% 9:11 ~ "Autumn",
+  TRUE ~ "Winter"
+)
+
+
+#Summarising crime counts by season and category
+crime_by_season <- cleaned_crime %>%
+  group_by(season, category) %>%
+  summarise(crime_count = n(), .groups = "drop")
+
+#Define custom colors for seasons (optional)
+season_colors <- c("Spring" = "Green",
+                   "Summer" = "#Orange",
+                   "Autumn" = "#DarkOrange",
+                   "Winter" = "#Blue")
+
+#plotting stacked bar chart
+ggplot(crime_by_season, aes(x = season, y = crime_count, fill = category)) +
+  geom_col(position = "stack") +
+  scale_fill_viridis_d(option = "C", name = "Crime Category") +  # Distinct colors for categories
+  scale_x_discrete(drop = FALSE) +  # Ensure all seasons are shown
+  labs(title = "Crime Distribution by Season & Category", x = "Season", y = "Number of Crimes") +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(size = 16, face = "bold", hjust = 0.5),
+    axis.title = element_text(size = 12),
+    axis.text = element_text(size = 10),
+    legend.position = "right"
+  )
+
+```
+
+## Heatmap to see crime hotspots:
+
+A heatmap on a map shows where, in our instance, a crime is happening in more intensity(more counts of crime) using the color gradient. The places with reddish-orange hue indicate that there are more crimes in that area as compared to the lower number of crimes indicated by the pale blue-green colors. By using the leaflet package, out heatmap is interactive, which means that we are able to zoom, click, explore into a specific region to explore the data in depth upto a certain level.
+
+```{r}
+crime_heatmap <- cleaned_crime %>% filter(!is.na(lat) & !is.na(long))
+
+leaflet(data = crime_heatmap) %>% addTiles() %>% addHeatmap(lng = ~long, lat = ~lat, radius = 10)
+```
+
+## Leaflet for violent crimes:
+
+Similar to the heatmap using leaflet, we care checking the highest value's category over a map. Observing this interactive map, we can conclude that most of the violent crimes are committed more at the city centre than its surrounding areas. 
+
+```{r}
+violent_crimes <- cleaned_crime %>% filter(category == "violent-crime")
+violent_map <- violent_crimes[!is.na(violent_crimes$lat) & !is.na(violent_crimes$long), ]
+
+leaflet(data = violent_map) %>%
+  addTiles() %>%
+  addCircleMarkers(lng = ~long, lat = ~lat,
+                   radius = 3, color = "blue", stroke = FALSE, fillOpacity = 0.4,
+                   popup = ~paste(category, outcome_status))
+```
+
+# Conclusion:
+
+From our analysis we can conclude that the weather did play an important role in influencing the crime trends in Colchester in 2024. We also saw that most of the overall crimes were committed in Summer while most violent crimes are committed in Winter. There are significantly more crimes committed around the city centre than its surrounding areas. Also, there were no major repercutions for the top 4 committed crimes in Colchester in 2024.
+If we had a bigger dataset, specifically a dataset spanning over 2 to 4 years we may have been able to understand the trends better and then, on analysis of those trends we/the police may have been able to devise a strategy to focus their efforts on curbing those crimes in a better and efficient manner.
+
+# References:
+
+1. R for Data Science. O’Reilly Media.
+2. Wickham, H. (2016). ggplot2: Elegant Graphics for Data Analysis. Springer.
+3. Grolemund, G., & Wickham, H. (2011). Dates and Times Made Easy with lubridate. Journal of Statistical Software, 40(3), 1–25.
+4. Wickham, H. (2019). Advanced R (2nd ed.). Chapman and Hall/CRC.
+5. Sites : DataCamp tutorials, Hackr.io for visualisation practice/learning.
+6. Sancho, J. L. V., Domínguez, J. C., & et al. (2014). An approach to the taxonomy of data visualization.
